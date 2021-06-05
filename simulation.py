@@ -7,11 +7,11 @@ import math
 import random
 
 from grid import Grid
+from settings import Settings
 
 
 class Simulation:
     FRAMERATE: int = 60
-    SPEED: float = 5.
     RADIUS: int = 5
 
     window: tk.Tk
@@ -26,6 +26,8 @@ class Simulation:
     speedX: float = 0.
     speedY: float = 0.
 
+    speed: float
+
     width: int
     height: int
 
@@ -36,7 +38,9 @@ class Simulation:
     background: tk.PhotoImage
 
     @classmethod
-    def run(cls, grid: Grid, ratio: float):
+    def run(cls, grid: Grid, ratio: float, settings: Settings):
+        cls.speed = settings.ballSpeed
+
         cls.grid = grid
 
         cls.width = int(grid.nbCols * ratio)
@@ -48,7 +52,8 @@ class Simulation:
 
         cls.cmap = matplotlib.cm.get_cmap("twilight")
 
-        print("Création de l'image")
+        if settings.verbose:
+            print("Création de l'image")
 
         cls.background = tk.PhotoImage(width=cls.width, height=cls.height)
         for col in range(grid.nbCols):
@@ -65,13 +70,15 @@ class Simulation:
                 pos = (col, row)
                 cls.background.put("#%02x%02x%02x" % tuple(color), pos)
 
-        print("Zoom de l'image")
+        if settings.verbose:
+            print("Zoom de l'image")
 
         cls.background = cls.background.zoom(ratio, ratio)
 
         cls.canvas.bind("<Button-1>", cls.onClick)
 
-        print("Affichage")
+        if settings.verbose:
+            print("Affichage")
 
         cls.onClick(None)
 
@@ -130,8 +137,8 @@ class Simulation:
         if idx is not None:
             dx, dy = cls.grid.derivatives[idx]
 
-            nx = cls.posX + cls.speedX * cls.SPEED
-            ny = cls.posY + cls.speedY * cls.SPEED
+            nx = cls.posX + cls.speedX * cls.speed
+            ny = cls.posY + cls.speedY * cls.speed
             nrow = (ny / cls.height) * cls.grid.nbRows
             ncol = (nx / cls.width) * cls.grid.nbCols
 
@@ -141,8 +148,8 @@ class Simulation:
             if cls.grid.getIndex(int(row), int(ncol)) is None:
                 cls.speedX *= -1
 
-            cls.posX += cls.speedX * cls.SPEED
-            cls.posY += cls.speedY * cls.SPEED
+            cls.posX += cls.speedX * cls.speed
+            cls.posY += cls.speedY * cls.speed
 
             cls.speedX += dx / 5
             cls.speedY += dy / 5

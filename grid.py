@@ -150,18 +150,53 @@ class Grid:
         M = sparse.coo_matrix((V, (R, C)), shape=(self.size(), self.size()))
         return M.tocsc()
 
-    def vectorToImage(self, V: np.matrix) -> np.matrix:
+    def vectorToImage(self, V: np.matrix, raw: bool = True) \
+            -> typing.Tuple[np.matrix, float, float]:
         """
         :param V: Matrice vecteur
         :return: Matrice image
+        :param raw: Raw or processed
         """
 
         img = np.zeros((self.nbRows, self.nbCols))
         K = self.index.keys()
         I = self.index.values()
+
+        mini = None
+        maxi = None
+
+        if not raw:
+            for _, idx in zip(K, I):
+                if V[idx] != 0:
+                    if mini is None or mini > V[idx]:
+                        mini = V[idx]
+
+                    if maxi is None or maxi < V[idx]:
+                        maxi = V[idx]
+
+            if mini is None:
+                mini = 0.
+            else:
+                mini = math.log(mini)
+
+            if maxi is None:
+                maxi = 100.
+            else:
+                maxi = math.log(maxi)
+
         for k, idx in zip(K, I):
-            img[k[0], k[1]] = V[idx]
-        return np.asmatrix(img)
+            if raw:
+                img[k[0], k[1]] = V[idx]
+            else:
+                if V[idx] == 0.:
+                    log = 0
+                    # Because walls are set to 0, we must not have any negative number,
+                    #  else they will start to glow as if they were hot
+                else:
+                    log = math.log(V[idx]) - mini
+                img[k[0], k[1]] = log
+
+        return np.asmatrix(img), 0, maxi - mini
 
     @staticmethod
     def imageToVector(img: np.matrix) -> typing.List[int]:
@@ -182,17 +217,23 @@ class Grid:
                       U: typing.List[float],
                       T: float,
                       dt: float,
-                      dirichlet: bool = True) \
-            -> typing.List[np.matrix]:
+                      dirichlet: bool,
+                      outputList: bool) \
+            -> typing.Tuple[np.matrix, typing.List[np.matrix]]:
         """
         :param U: Matrice
         :param T: T
         :param dt: Delta t
         :param dirichlet: Laplacien Dirichlet ou Neumann
+        :param outputList: Outputs a list or not
         :return: Liste des matrices à chaque intervalle delta t
         """
 
-        res = [U]
+        if outputList:
+            arr = [U]
+        else:
+            arr = []
+
         t = 0
         Uk = U
         m_id = self.Identity()
@@ -205,10 +246,13 @@ class Grid:
         while t < T:
             Uk1 = (m_id + dt * m_lap) * Uk
             t += dt
-            res.append(Uk1)
+
+            if outputList:
+                arr.append(Uk1)
+
             Uk = Uk1
 
-        return res
+        return Uk, arr
 
     def implicitEuler(self,
                       U: typing.List[float],
@@ -251,17 +295,23 @@ class Grid:
         values.sort()
 
         maxi = values[-1]
-        mini = math.log([x for x in values if x != 0][0])
+        maxi_log = math.log(maxi)
+
+        mini = -100
+        for x in values:
+            if x != 0.:
+                mini = math.log(x)
+                break  # We're sorted so we can break
 
         for row in range(self.nbRows):
             for col in range(self.nbCols):
                 idx = self.getIndex(row, col)
                 if idx is None:
-                    res[row, col] = mini
+                    res[row, col] = (mini - maxi_log) * 1.1
                 else:
                     value = self.values[idx] / maxi
                     if value == 0:
-                        res[row, col] = mini
+                        res[row, col] = (mini - maxi_log) * 1.1
                     else:
                         res[row, col] = math.log(value)
 
@@ -300,10 +350,10 @@ class Grid:
                 if idx is None:
                     continue
 
-                idx_xm1 = self.getIndex(row-1, col)
-                idx_xp1 = self.getIndex(row+1, col)
-                idx_yp1 = self.getIndex(row, col+1)
-                idx_ym1 = self.getIndex(row, col-1)
+                idx_xm1 = self.getIndex(row - 1, col)
+                idx_xp1 = self.getIndex(row + 1, col)
+                idx_yp1 = self.getIndex(row, col + 1)
+                idx_ym1 = self.getIndex(row, col - 1)
 
                 dx = 0.
                 dy = 0.
@@ -327,6 +377,19 @@ class Grid:
                     self.derivatives[idx] = (-math.sin(alpha), math.cos(alpha))
                     # NOTE: I'm not sure if we should take the "true" derivative or its orthogonal
                     #       vector, so I used the orthogonal one, pointing toward the origin
+
+    def showGif(self, mats: typing.List[np.matrix]) -> None:
+        fig = plt.figure()
+
+        imgs = []
+
+        for mat in mats:
+            values, mini, maxi = self.vectorToImage(mat, False)
+            imgs.append([plt.imshow(values, cmap="hot", vmin=mini, vmax=maxi)])
+
+        ani = animation.ArtistAnimation(fig, imgs, interval=50, blit=False, repeat_delay=0)
+        writer = animation.PillowWriter(fps=20)
+        ani.save("chaleur.gif", writer=writer)
 
 
 def EQM(u: np.matrix, g: np.matrix) -> float:
@@ -361,6 +424,7 @@ def PSNR_RGB(u, g):
     else:
         return 10 * math.log(v ** 2 / eqm, 10)
 
+
 def show(M: csc_matrix) -> None:
     res: np.matrix = np.asmatrix(np.zeros(M.shape))
 
@@ -369,19 +433,6 @@ def show(M: csc_matrix) -> None:
             res[row, col] = M[row, col]
 
     plt.imshow(res)
-    plt.show()
-
-
-def showGif(mats: typing.List[np.matrix]) -> None:
-    fig = plt.figure()
-
-    imgs = []
-    for mat in mats:
-        imgs.append([plt.imshow(D.vectorToImage(mat), cmap="hot", vmin=0.0, vmax=1.0)])
-
-    ani = animation.ArtistAnimation(fig, imgs, interval=50, blit=False, repeat_delay=0)
-    # writer = animation.PillowWriter(fps=20)
-    # ani.save("II-1-diffusion.gif", writer=writer)
     plt.show()
 
 
